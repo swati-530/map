@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Radar with Floating Controls</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            transition: transform 0.3s ease-in-out;
+            font-family: Arial, sans-serif;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        /* Floating buttons styles */
+        .button-container {
+            position: fixed;
+            left: 20px;
+            top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 1001;
+        }
+        
+        .button {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            outline: none;
+        }
+        
+        .button:hover {
+            background-color: rgba(255, 255, 255, 1);
+            transform: scale(1.1);
+            box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.4);
+        }
+        
+        .button img {
+            width: 24px;
+            height: 24px;
+        }
+        
+        /* Radar controls panel */
+        .radar-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 15px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .radar-controls button {
+            padding: 5px 10px;
+            border-radius: 3px;
+            border: none;
+            background: #0078A8;
+            color: white;
+            cursor: pointer;
+        }
+        
+        .radar-controls button:hover {
+            background: #005F8A;
+        }
+        
+        .radar-controls label {
+            margin-right: 5px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating buttons -->
+    <div class="button-container">
+        <button class="button" onclick="getLocation()" title="Get current location">
+            <img src="https://cdn-icons-png.flaticon.com/128/709/709586.png" alt="Location">
+        </button>
+        <button class="button" onclick="zoomIn()" title="Zoom in">
+            <img src="https://cdn-icons-png.flaticon.com/128/992/992651.png" alt="Zoom In">
+        </button>
+        <button class="button" onclick="zoomOut()" title="Zoom out">
+            <img src="https://cdn-icons-png.flaticon.com/128/992/992683.png" alt="Zoom Out">
+        </button>
+    </div>
+
+    <!-- Map container -->
+    <div id="map"></div>
+    
+    <!-- Radar controls -->
+    <div class="radar-controls">
+        <button id="play">▶ Play Animation</button>
+        <label>Opacity:</label>
+        <input type="range" id="opacity" min="0" max="1" step="0.1" value="0.7">
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        // Page zoom functionality
+        let zoomLevel = 1.0;
+        
+        function zoomIn() {
+            zoomLevel += 0.1;
+            document.body.style.transform = `scale(${zoomLevel})`;
+            document.body.style.transformOrigin = "top left";
+        }
+        
+        function zoomOut() {
+            zoomLevel = Math.max(0.5, zoomLevel - 0.1);
+            document.body.style.transform = `scale(${zoomLevel})`;
+            document.body.style.transformOrigin = "top left";
+        }
+        
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    const { latitude, longitude } = position.coords;
+                    alert(`Your location:\nLatitude: ${latitude}\nLongitude: ${longitude}`);
+                    map.flyTo([latitude, longitude], 10);
+                }, error => {
+                    alert("Geolocation not available or permission denied.");
+                });
+            } else {
+                alert("Geolocation is not supported by this browser.");
+            }
+        }
+
+        // Map and radar functionality
+        const map = L.map('map').setView([20.5937, 78.9629], 5); // Default to India
+        
+        // Add base map
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+        
+        // RainViewer API for weather radar
+        let radarLayers = [];
+        let currentFrame = 0;
+        let animationInterval;
+        
+        // Fetch radar data
+        fetch('https://api.rainviewer.com/public/weather-maps.json')
+            .then(response => response.json())
+            .then(data => {
+                const radarFrames = data.radar.past;
+                
+                // Create radar layers
+                radarFrames.forEach(frame => {
+                    const radarUrl = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+                    const radarLayer = L.tileLayer(radarUrl, {
+                        opacity: 0.7,
+                        attribution: 'RainViewer'
+                    });
+                    radarLayers.push(radarLayer);
+                });
+                
+                // Set up controls
+                document.getElementById('play').addEventListener('click', toggleAnimation);
+                document.getElementById('opacity').addEventListener('input', updateOpacity);
+                
+                // Show first frame
+                if (radarLayers.length > 0) {
+                    radarLayers[0].addTo(map);
+                }
+            })
+            .catch(error => {
+                console.error("Error loading radar data:", error);
+                alert("Weather radar data unavailable. Please try again later.");
+            });
+        
+        function toggleAnimation() {
+            const playButton = document.getElementById('play');
+            
+            if (animationInterval) {
+                clearInterval(animationInterval);
+                animationInterval = null;
+                playButton.textContent = "▶ Play Animation";
+            } else {
+                playButton.textContent = "⏸ Pause";
+                animateRadar();
+            }
+        }
+        
+        function animateRadar() {
+            animationInterval = setInterval(() => {
+                // Remove current frame
+                if (radarLayers[currentFrame]) {
+                    radarLayers[currentFrame].remove();
+                }
+                
+                // Move to next frame
+                currentFrame = (currentFrame + 1) % radarLayers.length;
+                
+                // Add new frame with current opacity
+                const opacity = parseFloat(document.getElementById('opacity').value);
+                radarLayers[currentFrame].setOpacity(opacity);
+                radarLayers[currentFrame].addTo(map);
+            }, 500);
+        }
+        
+        function updateOpacity(e) {
+            const opacity = parseFloat(e.target.value);
+            if (radarLayers[currentFrame]) {
+                radarLayers[currentFrame].setOpacity(opacity);
+            }
+        }
+    </script>
+</body>
+</html>
